@@ -71,7 +71,7 @@ func InitDatabaseWithOptions(cfg *Config, runMigrations bool) (*bun.DB, error) {
 	}
 
 	DB = manager.GetDB()
-	DB.RegisterModel(RegisteredModels...)
+	DB.RegisterModel(RegisteredModelInstances()...)
 	return DB, nil
 }
 

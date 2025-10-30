@@ -24,15 +24,6 @@ import (
 	"time"
 )
 
-var RegisteredModels = func() []interface{} {
-	models := GetRegisteredModels()
-	modelInstances := make([]interface{}, len(models))
-	for i, model := range models {
-		modelInstances[i] = model.Instance()
-	}
-	return modelInstances
-}()
-
 // MigrationManager coordinates schema migrations and data initialization.
 type MigrationManager struct {
 	db          *bun.DB
@@ -200,7 +191,7 @@ func (mm *MigrationManager) runMigration(ctx context.Context, migration Migratio
 }
 
 func (mm *MigrationManager) createBaseTables(ctx context.Context, db bun.IDB) error {
-	for _, model := range RegisteredModels {
+	for _, model := range RegisteredModelInstances() {
 		_, err := db.NewCreateTable().
 			Model(model).
 			IfNotExists().

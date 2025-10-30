@@ -98,3 +98,12 @@ func GetRegisteredModels() []SQLModel {
 func RegisteredModel(model SQLModel) {
 	defaultRegistry.Register(model)
 }
+
+func RegisteredModelInstances() []interface{} {
+	models := GetRegisteredModels()
+	modelInstances := make([]interface{}, len(models))
+	for i, model := range models {
+		modelInstances[i] = model.Instance()
+	}
+	return modelInstances
+}
