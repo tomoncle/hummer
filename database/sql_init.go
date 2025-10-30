@@ -151,6 +151,10 @@ func (s *SQLInitManager) GetSQLFiles() ([]SQLFileInfo, error) {
 func (s *SQLInitManager) getFilesFromDir(dir, environment string) ([]SQLFileInfo, error) {
 	var files []SQLFileInfo
 
+	if stat, err := os.Stat(dir); err != nil || !stat.IsDir() {
+		return files, nil
+	}
+
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
