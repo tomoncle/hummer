@@ -18,6 +18,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -85,7 +86,9 @@ func (mm *MigrationManager) SetEnvironment(env string) {
 // registered migrations in ascending version order.
 func (mm *MigrationManager) RunMigrations(ctx context.Context) error {
 	// silent migration
-	EnableBunSqlSilent(true)
+	if _, ok := os.LookupEnv("BUNDEBUG_MIGRATION"); !ok {
+		EnableBunSqlSilent(true)
+	}
 
 	if mm.db == nil {
 		return fmt.Errorf("database not initialized")
