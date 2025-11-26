@@ -19,7 +19,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -139,6 +141,7 @@ func (dm *defaultDatabaseManager) createConnection() (*sql.DB, *bun.DB, error) {
 }
 
 func (dm *defaultDatabaseManager) createMySQLConnection() (*sql.DB, *bun.DB, error) {
+	dm.ensureMySQLDatabase()
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=%s&readTimeout=%s&writeTimeout=%s",
 		dm.config.Username,
 		dm.config.Password,
@@ -160,6 +163,7 @@ func (dm *defaultDatabaseManager) createMySQLConnection() (*sql.DB, *bun.DB, err
 }
 
 func (dm *defaultDatabaseManager) createPostgreSQLConnection() (*sql.DB, *bun.DB, error) {
+	dm.ensurePostgresDatabase()
 	sslMode := dm.config.SSLMode
 	if sslMode == "" {
 		sslMode = "disable"
@@ -424,4 +428,97 @@ func (dm *defaultDatabaseManager) SetLogger(logger Logger) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 	dm.logger = logger
+}
+
+func (dm *defaultDatabaseManager) ensurePostgresDatabase() {
+	if !dm.config.AutoCreate {
+		return
+	}
+	charset := dm.config.Charset
+	if dm.config.Charset == "" {
+		charset = "UTF8"
+	}
+	sslmode := dm.config.SSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+	template := dm.config.Template
+	if template == "" {
+		template = "template0"
+	}
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(dm.config.Username, dm.config.Password),
+		Host:   fmt.Sprintf("%s:%d", dm.config.Host, dm.config.Port),
+		Path:   "postgres",
+	}
+	q := u.Query()
+	q.Set("sslmode", sslmode)
+	q.Set("connect_timeout", strconv.Itoa(int(dm.config.ConnectTimeout.Seconds())))
+	u.RawQuery = q.Encode()
+	dsn := u.String()
+
+	root, err := sql.Open("postgres", dsn)
+	if err != nil {
+		dm.logger.Error("Failed to connect to database:", "address", fmt.Sprintf("%v:%v", dm.config.Host, dm.config.Port), "error", err)
+		return
+	}
+	defer root.Close()
+
+	var exists int
+	err = root.QueryRow("SELECT COUNT(*) FROM pg_database WHERE datname = $1", dm.config.DBName).Scan(&exists)
+	if err != nil {
+		dm.logger.Error("Query database failed:", "database", dm.config.DBName, "error", err)
+		return
+	}
+	if exists == 0 {
+		dm.logger.Warn("Database detection does not exist:", "database", dm.config.DBName)
+		create := fmt.Sprintf(`CREATE DATABASE "%s" WITH OWNER "%s" ENCODING '%s' TEMPLATE %s`,
+			dm.config.DBName, dm.config.Username, charset, template)
+		if _, err = root.Exec(create); err != nil {
+			dm.logger.Error("Failed to create database:", "database", dm.config.DBName, "error", err)
+			return
+		}
+		dm.logger.Debug("Database has been created successfully:", "database", dm.config.DBName)
+	}
+}
+
+func (dm *defaultDatabaseManager) ensureMySQLDatabase() {
+	if !dm.config.AutoCreate {
+		return
+	}
+	charset := dm.config.Charset
+	if dm.config.Charset == "" {
+		charset = "utf8mb4 COLLATE utf8mb4_general_ci"
+	}
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?parseTime=true&multiStatements=true",
+		dm.config.Username,
+		dm.config.Password,
+		dm.config.Host,
+		dm.config.Port)
+	root, err := sql.Open("mysql", dsn)
+	if err != nil {
+		dm.logger.Error("Failed to connect to database:", "address", fmt.Sprintf("%v:%v", dm.config.Host, dm.config.Port), "error", err)
+		return
+	}
+	defer func(root *sql.DB) {
+		_ = root.Close()
+	}(root)
+
+	var exists int
+	err = root.QueryRow("SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?", dm.config.DBName).Scan(&exists)
+	if err != nil {
+		dm.logger.Error("Query database failed:", "database", dm.config.DBName, "error", err)
+		return
+	}
+	if exists == 0 {
+		dm.logger.Warn("Database detection does not exist:", "database", dm.config.DBName)
+		create := fmt.Sprintf("CREATE DATABASE /*!32312 IF NOT EXISTS*/`%s` /*!40100 DEFAULT CHARACTER SET %s */",
+			dm.config.DBName, charset)
+		if _, err = root.Exec(create); err != nil {
+			dm.logger.Error("Failed to create database:", "database", dm.config.DBName, "error", err)
+			return
+		}
+		dm.logger.Debug("Database has been created successfully:", "database", dm.config.DBName)
+	}
 }

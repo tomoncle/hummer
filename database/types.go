@@ -95,6 +95,9 @@ type ConnectionConfig struct {
 	HealthCheckInterval time.Duration `json:"health_check_interval"`
 	EnableQueryLog      bool          `json:"enable_query_log"`
 	SlowQueryTime       time.Duration `json:"slow_query_time"`
+	AutoCreate          bool          `json:"auto_create"`
+	Charset             string        `json:"charset"` // MySQL:utf8mb4  、Postgres:UTF8
+	Template            string        `json:"template"`
 }
 
 // DataMigrateConfig controls schema migration behavior on startup.

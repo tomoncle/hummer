@@ -93,7 +93,9 @@ func (f *BaseDatabaseFactory) overrideFromEnv(cfg *ConnectionConfig) {
 	if sslmode := os.Getenv("DB_SSLMODE"); sslmode != "" {
 		cfg.SSLMode = sslmode
 	}
-
+	if _, autoCreate := os.LookupEnv("DB_AUTO_CREATE"); autoCreate {
+		cfg.AutoCreate = true
+	}
 	// Connection pool config
 	if maxIdle := os.Getenv("DB_MAX_IDLE_CONNS"); maxIdle != "" {
 		if val, err := strconv.Atoi(maxIdle); err == nil {
