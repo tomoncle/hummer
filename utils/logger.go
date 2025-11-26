@@ -46,7 +46,7 @@ var (
 	defaultFileLevel    = logrus.TraceLevel
 	loggerRegistryMu    sync.RWMutex
 	loggerRegistry      = map[string]*logrus.Logger{}
-	fileLogEnabled      = EnvDefaultBool("FILE_LOG_ENABLED", true)
+	fileLogEnabled      = EnvDefaultBool("FILE_LOG_ENABLED", false)
 	fileLogDir          = "logs"
 	fileLogMaxAgeDays   = 0
 	fileLogUseLink      = false

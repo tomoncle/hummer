@@ -43,7 +43,7 @@ func NewDatabaseFactory() *BaseDatabaseFactory {
 // configuration, applying environment overrides and setting the factory logger.
 func (f *BaseDatabaseFactory) CreateFromConfig(cfg *ConnectionConfig) (AbstractDatabaseManager, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("Database configuration cannot be empty")
+		return nil, fmt.Errorf("database configuration cannot be empty")
 	}
 
 	// Check whether the database type is supported
@@ -56,7 +56,7 @@ func (f *BaseDatabaseFactory) CreateFromConfig(cfg *ConnectionConfig) (AbstractD
 		}
 	}
 	if !supported {
-		return nil, fmt.Errorf("Unsupported database type: %s, supported types: %v", cfg.Type, supportedTypes)
+		return nil, fmt.Errorf("unsupported database type: %s, supported types: %v", cfg.Type, supportedTypes)
 	}
 
 	// Override sensitive config from environment variables
