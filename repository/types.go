@@ -29,7 +29,7 @@ type CrudRepository[T any] interface {
 
 	GetAll(ctx context.Context) ([]*T, error)
 
-	List(ctx context.Context, filter *types.QueryFilter) ([]*T, error)
+	List(ctx context.Context, filter *types.Condition) ([]*T, error)
 
 	Query(ctx context.Context, query string, args ...interface{}) ([]*T, error)
 
@@ -37,17 +37,17 @@ type CrudRepository[T any] interface {
 
 	Upsert(ctx context.Context, fields []string, duplicateKeys []string, entity ...*T) error
 
-	Update(ctx context.Context, entity *T) error
+	Update(ctx context.Context, entity ...*T) error
 
-	Delete(ctx context.Context, id any) error
+	Delete(ctx context.Context, id ...any) error
 }
 
 // TransactionRepository defines CRUD operations executed within a transaction.
 type TransactionRepository[T any] interface {
 	CreateWithTx(ctx context.Context, tx *bun.Tx, entity ...*T) error
 	UpsertWithTx(ctx context.Context, tx *bun.Tx, fields []string, duplicateKeys []string, entity ...*T) error
-	UpdateWithTx(ctx context.Context, tx *bun.Tx, entity *T) error
-	DeleteWithTx(ctx context.Context, tx *bun.Tx, id any) error
+	UpdateWithTx(ctx context.Context, tx *bun.Tx, entity ...*T) error
+	DeleteWithTx(ctx context.Context, tx *bun.Tx, id ...any) error
 }
 
 // PageQueryRepository defines pagination functionality for listing entities.
@@ -66,4 +66,12 @@ type Repository[T any] interface {
 	NewInsert() *bun.InsertQuery
 	NewUpdate() *bun.UpdateQuery
 	NewDelete() *bun.DeleteQuery
+}
+
+type CascadeQuery[T any] interface {
+	RelationNames() []string
+}
+
+type PrimaryKeyDefinition[T any] interface {
+	PrimaryKeyName() string
 }

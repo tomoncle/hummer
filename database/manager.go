@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -29,7 +30,6 @@ import (
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/sqliteshim"
-	"github.com/uptrace/bun/extra/bundebug"
 )
 
 type defaultDatabaseManager struct {
@@ -123,20 +123,18 @@ func (dm *defaultDatabaseManager) createConnection() (*sql.DB, *bun.DB, error) {
 		return nil, nil, err
 	}
 
-	if dm.config.EnableQueryLog {
-		db.AddQueryHook(bundebug.NewQueryHook(
-			bundebug.WithVerbose(true),
-			bundebug.FromEnv("BUNDEBUG"),
-		))
-	}
-
-	if dm.config.SlowQueryTime > 0 {
-		db.AddQueryHook(&slowQueryHook{
-			slowTime: dm.config.SlowQueryTime,
-			logger:   dm.logger,
-		})
-	}
-
+	db.AddQueryHook(&QueryHook{
+		envName: "BUNDEBUG",
+		enabled: dm.config.EnableQueryLog,
+		verbose: true,
+		writer:  os.Stderr,
+	})
+	db.AddQueryHook(&SlowQueryHook{
+		slowTime: dm.config.SlowQueryTime,
+		enabled:  dm.config.SlowQueryTime > 0,
+		fromEnv:  "BUNDEBUG_SLOWQUERY",
+		writer:   os.Stderr,
+	})
 	return sqlDB, db, nil
 }
 
@@ -307,6 +305,7 @@ func (dm *defaultDatabaseManager) HealthCheck(ctx context.Context) *HealthStatus
 		status.Healthy = true
 		status.Connected = true
 		dm.lastError = nil
+		dm.reconnectTries = 0
 	}
 
 	if dm.sqlDB != nil {
@@ -370,6 +369,8 @@ func (dm *defaultDatabaseManager) handleReconnect() {
 		}
 	} else {
 		dm.reconnectTries = 0
+		DB = dm.GetDB()
+		DB.RegisterModel(RegisteredModelInstances()...)
 		if dm.logger != nil {
 			dm.logger.Info("Reconnect succeeded")
 		}
@@ -423,29 +424,4 @@ func (dm *defaultDatabaseManager) SetLogger(logger Logger) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 	dm.logger = logger
-}
-
-type slowQueryHook struct {
-	slowTime time.Duration
-	logger   Logger
-}
-
-func (h *slowQueryHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
-	return ctx
-}
-
-func (h *slowQueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
-	if event.Err != nil {
-		return
-	}
-
-	duration := time.Since(event.StartTime)
-	if duration > h.slowTime && h.logger != nil {
-		h.logger.Warn("\x1b[33;5mDatabase slow query detected:⚠️\x1b[0m",
-			"duration", duration,
-			"slow_threshold", h.slowTime,
-			"query", event.Query,
-		)
-	}
-
 }

@@ -40,12 +40,23 @@ type DatabaseConfig struct {
 func (c *Config) ConfigLoader() *database.Config {
 	return &database.Config{
 		ConnectionConfig: database.ConnectionConfig{
-			Type:     c.Database.Type,
-			Host:     c.Database.Host,
-			Port:     c.Database.Port,
-			Username: c.Database.Username,
-			Password: c.Database.Password,
-			DBName:   c.Database.DBName,
+			Type:           c.Database.Type,
+			Host:           c.Database.Host,
+			Port:           c.Database.Port,
+			Username:       c.Database.Username,
+			Password:       c.Database.Password,
+			DBName:         c.Database.DBName,
+			EnableQueryLog: true,
+		},
+		DataMigrateConfig: database.DataMigrateConfig{
+			EnableMigrateOnStartup:    true,
+			EnableSchemaSync:          true,
+			AllowColumnAdd:            true,
+			AllowColumnModify:         true,
+			AllowColumnDrop:           true,
+			AllowIndexAdd:             true,
+			AllowIndexDrop:            true,
+			EnforceNotNullWithDefault: true,
 		},
 	}
 }
@@ -54,12 +65,16 @@ type SystemConfig struct {
 	bun.BaseModel `bun:"table:system_config,alias:sc"`
 
 	ID          int64     `bun:"id,type:bigint,pk,autoincrement" json:"id"`
-	ConfigKey   string    `bun:"config_key,notnull,unique" json:"config_key"`
+	ConfigKey   string    `bun:"config_key_new,type:varchar(512),notnull,default:'',unique" hummer:"rename:'config_key_old'"  json:"config_key"`
 	ConfigValue string    `bun:"config_value" json:"config_value"`
 	Description string    `bun:"description" json:"description"`
 	ConfigType  string    `bun:"config_type,notnull,default:'string'" json:"config_type"`
 	CreatedAt   time.Time `bun:"created_at,nullzero,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt   time.Time `bun:"updated_at,nullzero,notnull,default:current_timestamp" json:"updated_at"`
+}
+
+func init() {
+	database.RegisteredModel(database.NewModelAdapter((*SystemConfig)(nil), 10))
 }
 
 func TestQuery(t *testing.T) {

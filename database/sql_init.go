@@ -65,7 +65,7 @@ func NewSQLInitManager(db *bun.DB, environment string) *SQLInitManager {
 		db:          db,
 		environment: environment,
 		sqlRootPath: "configs/sql",
-		logger:      GetDBLogger(),
+		logger:      GetLogger(),
 	}
 }
 

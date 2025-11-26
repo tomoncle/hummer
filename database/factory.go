@@ -35,7 +35,7 @@ type BaseDatabaseFactory struct {
 // NewDatabaseFactory returns a new database factory using the global logger.
 func NewDatabaseFactory() *BaseDatabaseFactory {
 	return &BaseDatabaseFactory{
-		logger: GetDBLogger(),
+		logger: GetLogger(),
 	}
 }
 

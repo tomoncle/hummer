@@ -99,9 +99,19 @@ type ConnectionConfig struct {
 
 // DataMigrateConfig controls schema migration behavior on startup.
 type DataMigrateConfig struct {
-	EnableMigrateOnStartup bool   `json:"enable_migrate_on_startup"`
-	EnableForeignKey       bool   `json:"enable_foreign_key"`
-	ForeignKeyFile         string `json:"foreign_key_file"`
+	EnableMigrateOnStartup    bool          `json:"enable_migrate_on_startup"`
+	EnableForeignKey          bool          `json:"enable_foreign_key"`
+	ForeignKeyFile            string        `json:"foreign_key_file"`
+	EnableSchemaSync          bool          `json:"enable_schema_sync"`
+	AllowColumnAdd            bool          `json:"allow_column_add"`
+	AllowColumnModify         bool          `json:"allow_column_modify"`
+	AllowColumnDrop           bool          `json:"allow_column_drop"`
+	AllowIndexAdd             bool          `json:"allow_index_add"`
+	AllowIndexDrop            bool          `json:"allow_index_drop"`
+	EnforceNotNullWithDefault bool          `json:"enforce_not_null_with_default"`
+	SchemaMetaCacheTTL        time.Duration `json:"schema_meta_cache_ttl"`
+	SchemaMetaCacheLoadOnce   bool          `json:"schema_meta_cache_load_once"`
+	SchemaMetaAuditLog        bool          `json:"schema_meta_audit_log"`
 }
 
 // DataInitConfig controls data seeding behavior and environment selection.
@@ -199,17 +209,17 @@ func NewConfigurableForeignKeyManager(logger Logger, configPath string) (*Config
 
 func (cfm *ConfigurableForeignKeyManager) loadFromConfig() ([]ForeignKeyConstraint, error) {
 	if _, err := os.Stat(cfm.configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("Config file does not exist: %s", cfm.configPath)
+		return nil, fmt.Errorf("config file does not exist: %s", cfm.configPath)
 	}
 
 	data, err := os.ReadFile(cfm.configPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	var config ForeignKeyConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("Failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
 	var constraints []ForeignKeyConstraint
@@ -254,15 +264,15 @@ func (cfm *ConfigurableForeignKeyManager) ExportToConfig(outputPath string) erro
 
 	data, err := yaml.Marshal(&config)
 	if err != nil {
-		return fmt.Errorf("Failed to serialize config: %w", err)
+		return fmt.Errorf("failed to serialize config: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		return fmt.Errorf("Failed to create output directory: %w", err)
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	if err := os.WriteFile(outputPath, data, 0644); err != nil {
-		return fmt.Errorf("Failed to write config file: %w", err)
+		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
 	return nil

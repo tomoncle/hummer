@@ -15,71 +15,89 @@
 
 package types
 
-// QueryFilter describes a WHERE clause schema and its argument values.
-type QueryFilter struct {
+import "strings"
+
+type Condition struct {
 	Schema string
 	Args   []interface{}
 }
 
-// NewQueryFilter creates a new query filter with schema and args.
-func NewQueryFilter(schema string, args ...interface{}) *QueryFilter {
-	return &QueryFilter{schema, args}
+func NewCondition(schema string, args ...interface{}) *Condition {
+	return &Condition{schema, args}
 }
 
-// PageRequest describes pagination, optional filter, and ordering.
+type ConditionBuilder struct {
+	builder   strings.Builder
+	condition Condition
+}
+
+func NewConditionBuilder() *ConditionBuilder {
+	return &ConditionBuilder{builder: strings.Builder{}, condition: Condition{}}
+}
+
+func (c *ConditionBuilder) AND(query string, args ...interface{}) *ConditionBuilder {
+	if !c.IsEmpty() {
+		c.builder.WriteString(" AND ")
+	}
+	c.builder.WriteString(query)
+	c.condition.Args = append(c.condition.Args, args...)
+	return c
+}
+
+func (c *ConditionBuilder) OR(query string, args ...interface{}) *ConditionBuilder {
+	if !c.IsEmpty() {
+		c.builder.WriteString(" OR ")
+	}
+	c.builder.WriteString(query)
+	c.condition.Args = append(c.condition.Args, args...)
+	return c
+}
+
+func (c *ConditionBuilder) IsEmpty() bool {
+	return c.builder.Len() == 0
+}
+
+func (c *ConditionBuilder) Condition() *Condition {
+	if c.IsEmpty() {
+		return nil
+	}
+	c.condition.Schema = c.builder.String()
+	return &c.condition
+}
+
 type PageRequest struct {
-	page     int
-	pageSize int
-	filter   *QueryFilter
-	orders   []string // "ID ASC", "name DESC"
+	page      int
+	pageSize  int
+	condition *Condition
+	orders    []string // "ID ASC", "name DESC"
 }
 
-func (p *PageRequest) GetPageSize() int {
+func (p *PageRequest) PageSize() int {
 	if p.pageSize < 1 {
 		p.pageSize = 10
 	}
 	return p.pageSize
 }
-func (p *PageRequest) GetPage() int {
+func (p *PageRequest) Page() int {
 	if p.page < 1 {
 		p.page = 1
 	}
 	return p.page
 }
-
-func (p *PageRequest) GetOffset() int {
-	return (p.GetPage() - 1) * p.GetPageSize()
+func (p *PageRequest) Offset() int {
+	return (p.Page() - 1) * p.PageSize()
 }
-
-func (p *PageRequest) GetFilter() *QueryFilter {
-	return p.filter
+func (p *PageRequest) Condition() *Condition {
+	return p.condition
 }
-
-func (p *PageRequest) GetOrders() []string {
+func (p *PageRequest) Orders() []string {
 	return p.orders
 }
 
-// NewPageRequest constructs a PageRequest with filter and order settings.
-func NewPageRequest(page int, pageSize int, filter *QueryFilter, orders []string) *PageRequest {
-	return &PageRequest{page, pageSize, filter, orders}
+func NewPageRequest(page int, pageSize int, c *Condition, orders []string) *PageRequest {
+	return &PageRequest{page, pageSize, c, orders}
 }
 
-// NewPageRequestWithFilter constructs a PageRequest with a filter only.
-func NewPageRequestWithFilter(page int, pageSize int, filter *QueryFilter) *PageRequest {
-	return NewPageRequest(page, pageSize, filter, make([]string, 0))
-}
-
-// NewPageRequestWithOrders constructs a PageRequest with ordering only.
-func NewPageRequestWithOrders(page int, pageSize int, orders []string) *PageRequest {
-	return NewPageRequest(page, pageSize, nil, orders)
-}
-
-// NewDefaultPageRequest constructs a PageRequest with no filter or ordering.
-func NewDefaultPageRequest(page int, pageSize int) *PageRequest {
-	return NewPageRequest(page, pageSize, nil, make([]string, 0))
-}
-
-// Pagination holds paged result items along with pagination metadata.
 type Pagination[T any] struct {
 	Page     int
 	PageSize int
@@ -87,7 +105,6 @@ type Pagination[T any] struct {
 	Items    []*T
 }
 
-// NewDefaultPagination constructs an empty pagination container.
 func NewDefaultPagination[T any](page int, pageSize int) *Pagination[T] {
 	return &Pagination[T]{page, pageSize, 0, make([]*T, 0)}
 }

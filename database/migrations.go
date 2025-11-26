@@ -18,17 +18,32 @@ package database
 import (
 	"context"
 	"fmt"
-	"github.com/uptrace/bun"
 	"reflect"
 	"sort"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // MigrationManager coordinates schema migrations and data initialization.
 type MigrationManager struct {
-	db          *bun.DB
-	logger      Logger
-	environment string
+	db                   *bun.DB
+	logger               Logger
+	environment          string
+	migrationCache       map[string]struct{}
+	tableSchemaCache     map[string]struct{}
+	schemaCacheMu        sync.RWMutex
+	migrationCacheMu     sync.RWMutex
+	tableSchemaCacheMu   sync.RWMutex
+	columnSchemaCache    map[string]map[string]columnSpec
+	indexSchemaCache     map[string][]indexSpec
+	schemaCacheLoadedAt  time.Time
+	schemaCacheLoadOnce  bool
+	schemaCacheHits      int
+	schemaCacheMisses    int
+	schemaCacheRefreshes int
 }
 
 // Migration represents an applied migration record stored in the database.
@@ -69,6 +84,9 @@ func (mm *MigrationManager) SetEnvironment(env string) {
 // RunMigrations creates the migration tracking table if needed and executes all
 // registered migrations in ascending version order.
 func (mm *MigrationManager) RunMigrations(ctx context.Context) error {
+	// silent migration
+	EnableBunSqlSilent(true)
+
 	if mm.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -77,6 +95,16 @@ func (mm *MigrationManager) RunMigrations(ctx context.Context) error {
 		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
 
+	if globalConfig != nil && globalConfig.DataMigrateConfig.EnableSchemaSync {
+		ttl := time.Minute * 5
+		if globalConfig != nil && globalConfig.DataMigrateConfig.SchemaMetaCacheTTL > 0 {
+			ttl = globalConfig.DataMigrateConfig.SchemaMetaCacheTTL
+		}
+		_ = mm.ensureSchemaMetadataCaches(ctx, mm.db, ttl)
+		if err := mm.SynchronizeSchema(ctx, mm.db); err != nil {
+			return fmt.Errorf("sync schema failed: %w", err)
+		}
+	}
 	migrations := mm.getAllMigrations()
 
 	sort.Slice(migrations, func(i, j int) bool {
@@ -93,6 +121,66 @@ func (mm *MigrationManager) RunMigrations(ctx context.Context) error {
 		mm.logger.Info("Database migrations completed!")
 	}
 
+	EnableBunSqlSilent(false)
+	return nil
+}
+
+func (mm *MigrationManager) RefreshSchemaMetadataForTables(ctx context.Context, db bun.IDB, tables []string) error {
+	mm.schemaCacheMu.Lock()
+	defer mm.schemaCacheMu.Unlock()
+	if len(tables) == 0 {
+		return nil
+	}
+	colsByTable, errCols := listExistingColumnsSome(ctx, db, tables)
+	idxByTable, errIdx := listExistingIndexesSome(ctx, db, tables)
+	if errCols != nil {
+		return errCols
+	}
+	if errIdx != nil {
+		return errIdx
+	}
+	if mm.columnSchemaCache == nil {
+		mm.columnSchemaCache = make(map[string]map[string]columnSpec)
+	}
+	if mm.indexSchemaCache == nil {
+		mm.indexSchemaCache = make(map[string][]indexSpec)
+	}
+	updatedTbl := 0
+	for _, t := range tables {
+		key := strings.ToLower(t)
+		if colsByTable != nil {
+			if cols, ok := colsByTable[key]; ok && cols != nil {
+				mm.columnSchemaCache[key] = cols
+				updatedTbl++
+			}
+		} else {
+			cols, err := listExistingColumns(ctx, db, t)
+			if err == nil {
+				mm.columnSchemaCache[key] = cols
+				updatedTbl++
+			}
+		}
+		if idxByTable != nil {
+			if idx, ok := idxByTable[key]; ok && idx != nil {
+				mm.indexSchemaCache[key] = idx
+			} else {
+				i, err := listExistingIndexes(ctx, db, t)
+				if err == nil {
+					mm.indexSchemaCache[key] = i
+				}
+			}
+		} else {
+			i, err := listExistingIndexes(ctx, db, t)
+			if err == nil {
+				mm.indexSchemaCache[key] = i
+			}
+		}
+	}
+	mm.schemaCacheLoadedAt = time.Now()
+	mm.schemaCacheRefreshes++
+	if mm.logger != nil && globalConfig != nil && globalConfig.DataMigrateConfig.SchemaMetaAuditLog {
+		mm.logger.Info("Schema metadata cache refreshes", "tables", updatedTbl)
+	}
 	return nil
 }
 
@@ -142,9 +230,6 @@ func (mm *MigrationManager) runMigration(ctx context.Context, migration Migratio
 		return err
 	}
 	if exists {
-		if mm.logger != nil {
-			mm.logger.Debug("Database migration skipped:", "action", migration.Description, "version", migration.Version)
-		}
 		return nil
 	}
 
@@ -285,4 +370,92 @@ func (mm *MigrationManager) GetAppliedMigrations(ctx context.Context) ([]Migrati
 func (mm *MigrationManager) RollbackMigration(ctx context.Context, version string) error {
 	// RollbackMigration is currently not implemented.
 	return fmt.Errorf("migration rollback is not implemented yet")
+}
+
+func (mm *MigrationManager) ensureSchemaMetadataCaches(ctx context.Context, db bun.IDB, ttl time.Duration) error {
+	mm.schemaCacheMu.Lock()
+	defer mm.schemaCacheMu.Unlock()
+	if mm.columnSchemaCache != nil && mm.indexSchemaCache != nil {
+		if mm.schemaCacheLoadOnce {
+			return nil
+		}
+		if ttl <= 0 || time.Since(mm.schemaCacheLoadedAt) < ttl {
+			return nil
+		}
+	}
+	colsByTable, errCols := listExistingColumnsAll(ctx, db)
+	idxByTable, errIdx := listExistingIndexesAll(ctx, db)
+	if errCols != nil {
+		return errCols
+	}
+	if errIdx != nil {
+		return errIdx
+	}
+	mm.columnSchemaCache = colsByTable
+	mm.indexSchemaCache = idxByTable
+	mm.schemaCacheLoadedAt = time.Now()
+	mm.schemaCacheRefreshes++
+	if mm.logger != nil && globalConfig != nil && globalConfig.DataMigrateConfig.SchemaMetaAuditLog {
+		loadedTables := 0
+		if mm.columnSchemaCache != nil {
+			loadedTables = len(mm.columnSchemaCache)
+		}
+		mm.logger.Info("Schema metadata cache refreshed", "tables", loadedTables, "ttl_sec", int(ttl.Seconds()), "load_once", mm.schemaCacheLoadOnce)
+	}
+	return nil
+}
+
+func (mm *MigrationManager) InvalidateSchemaMetadataCaches() {
+	mm.schemaCacheMu.Lock()
+	defer mm.schemaCacheMu.Unlock()
+	mm.columnSchemaCache = nil
+	mm.indexSchemaCache = nil
+	mm.schemaCacheLoadedAt = time.Time{}
+}
+
+func (mm *MigrationManager) getColumnSchemaForTable(ctx context.Context, db bun.IDB, table string) (map[string]columnSpec, error) {
+	mm.schemaCacheMu.Lock()
+	defer mm.schemaCacheMu.Unlock()
+	if mm.columnSchemaCache != nil {
+		res := mm.columnSchemaCache[strings.ToLower(table)]
+		if res != nil {
+			mm.schemaCacheHits++
+			return res, nil
+		}
+		mm.schemaCacheMisses++
+		cols, err := listExistingColumns(ctx, db, table)
+		if err != nil {
+			return nil, err
+		}
+		if mm.columnSchemaCache == nil {
+			mm.columnSchemaCache = make(map[string]map[string]columnSpec)
+		}
+		mm.columnSchemaCache[strings.ToLower(table)] = cols
+		return cols, nil
+	}
+	return listExistingColumns(ctx, db, table)
+}
+
+func (mm *MigrationManager) getIndexSchemaForTable(ctx context.Context, db bun.IDB, table string) ([]indexSpec, error) {
+	mm.schemaCacheMu.Lock()
+	defer mm.schemaCacheMu.Unlock()
+	if mm.indexSchemaCache != nil {
+		res := mm.indexSchemaCache[strings.ToLower(table)]
+		if res != nil {
+			mm.schemaCacheHits++
+			return res, nil
+		}
+		mm.schemaCacheMisses++
+		idx, err := listExistingIndexes(ctx, db, table)
+		if err != nil {
+			return nil, err
+		}
+		// 写回缓存
+		if mm.indexSchemaCache == nil {
+			mm.indexSchemaCache = make(map[string][]indexSpec)
+		}
+		mm.indexSchemaCache[strings.ToLower(table)] = idx
+		return idx, nil
+	}
+	return listExistingIndexes(ctx, db, table)
 }

@@ -17,24 +17,22 @@ package database
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"time"
+	"github.com/tomoncle/hummer/utils"
+	"strings"
+	"sync"
 )
 
-var dbLogger Logger
+var (
+	globalLogger   Logger
+	globalLoggerMu sync.RWMutex
+)
 
-// LogLevel defines the severity for database logging.
 type LogLevel int
 
 const (
-	// LogLevelDebug enables verbose diagnostic logging.
 	LogLevelDebug LogLevel = iota
-	// LogLevelInfo records general informational events.
 	LogLevelInfo
-	// LogLevelWarn highlights potential issues.
 	LogLevelWarn
-	// LogLevelError reports errors and failures.
 	LogLevelError
 )
 
@@ -54,73 +52,72 @@ func (l LogLevel) String() string {
 }
 
 type Logger interface {
-	// Debug writes a debug-level log message.
+	SetLevel(LogLevel)
 	Debug(msg string, fields ...interface{})
-	// Info writes an info-level log message.
 	Info(msg string, fields ...interface{})
-	// Warn writes a warning-level log message.
 	Warn(msg string, fields ...interface{})
-	// Error writes an error-level log message.
 	Error(msg string, fields ...interface{})
 }
 
-// InitLogger sets the global database logger.
-func InitLogger(logger Logger) {
-	dbLogger = logger
-}
-
-// GetDBLogger returns the global database logger, creating a default
-// logger at info level if none has been initialized.
-func GetDBLogger() Logger {
-	if dbLogger == nil {
-		return NewDefaultLogger(LogLevelInfo)
+func InitLogger(log Logger) {
+	if log == nil {
+		return
 	}
-	return dbLogger
+	globalLoggerMu.Lock()
+	defer globalLoggerMu.Unlock()
+	if globalLogger == nil {
+		globalLogger = log
+	}
 }
 
-// DefaultLogger is a simple standard output logger implementation.
+func GetLogger() Logger {
+	globalLoggerMu.RLock()
+	l := globalLogger
+	globalLoggerMu.RUnlock()
+	if l != nil {
+		return l
+	}
+
+	dl := &DefaultLogger{level: LogLevelInfo, logger: utils.NewLogger("DATABASE")}
+	globalLoggerMu.Lock()
+	if globalLogger == nil {
+		globalLogger = dl
+	}
+	l = globalLogger
+	globalLoggerMu.Unlock()
+	return l
+}
+
 type DefaultLogger struct {
 	level  LogLevel
-	logger *log.Logger
-}
-
-// NewDefaultLogger creates a new DefaultLogger with the provided level.
-func NewDefaultLogger(level LogLevel) *DefaultLogger {
-	return &DefaultLogger{
-		level:  level,
-		logger: log.New(os.Stdout, "[DATABASE] ", log.LstdFlags|log.Lshortfile),
-	}
+	logger *utils.Logger
 }
 
 func (l *DefaultLogger) Debug(msg string, fields ...interface{}) {
-	if l.level <= LogLevelDebug {
-		l.log(LogLevelDebug, msg, fields...)
-	}
+	l.logger.Debug(msg + l.log(fields...))
 }
 
 func (l *DefaultLogger) Info(msg string, fields ...interface{}) {
-	if l.level <= LogLevelInfo {
-		l.log(LogLevelInfo, msg, fields...)
-	}
+	l.logger.Info(msg + l.log(fields...))
 }
 
 func (l *DefaultLogger) Warn(msg string, fields ...interface{}) {
-	if l.level <= LogLevelWarn {
-		l.log(LogLevelWarn, msg, fields...)
-	}
+	l.logger.Warn(msg + l.log(fields...))
 }
 
 func (l *DefaultLogger) Error(msg string, fields ...interface{}) {
-	if l.level <= LogLevelError {
-		l.log(LogLevelError, msg, fields...)
-	}
+	l.logger.Error(msg + l.log(fields...))
 }
 
-func (l *DefaultLogger) log(level LogLevel, msg string, fields ...interface{}) {
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	levelStr := level.String()
+func (l *DefaultLogger) SetLevel(level LogLevel) {
+	utils.SetLoggerLevel("DATABASE", strings.ToLower(level.String()))
+}
 
-	fieldsStr := ""
+func (l *DefaultLogger) log(fields ...interface{}) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	fieldsStr := " "
 	if len(fields) > 0 {
 		fieldsStr = " "
 		for i := 0; i < len(fields); i += 2 {
@@ -129,17 +126,5 @@ func (l *DefaultLogger) log(level LogLevel, msg string, fields ...interface{}) {
 			}
 		}
 	}
-
-	logMsg := fmt.Sprintf("%s [%s] %s%s", timestamp, levelStr, msg, fieldsStr)
-	l.logger.Println(logMsg)
-}
-
-// SetLevel updates the current logging level.
-func (l *DefaultLogger) SetLevel(level LogLevel) {
-	l.level = level
-}
-
-// GetLevel returns the current logging level.
-func (l *DefaultLogger) GetLevel() LogLevel {
-	return l.level
+	return fieldsStr
 }

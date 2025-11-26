@@ -33,7 +33,7 @@ type Service[T any] interface {
 	All(ctx context.Context) ([]*T, error)
 
 	// List returns entities that match the provided filter.
-	List(ctx context.Context, filter *types.QueryFilter) ([]*T, error)
+	List(ctx context.Context, filter *types.Condition) ([]*T, error)
 
 	// Query executes a raw query and maps the results to entities.
 	Query(ctx context.Context, query string, args ...interface{}) ([]*T, error)
@@ -42,10 +42,10 @@ type Service[T any] interface {
 	Page(ctx context.Context, page *types.PageRequest) (*types.Pagination[T], error)
 
 	// Update modifies an existing entity.
-	Update(ctx context.Context, model *T) error
+	Update(ctx context.Context, model ...*T) error
 
 	// Delete removes an entity by its identifier.
-	Delete(ctx context.Context, id any) error
+	Delete(ctx context.Context, id ...any) error
 
 	// Save inserts one or more new entities.
 	Save(ctx context.Context, model ...*T) error
@@ -60,10 +60,10 @@ type Service[T any] interface {
 	SaveOrUpdateWithTx(ctx context.Context, tx *bun.Tx, fields []string, duplicateKeys []string, model ...*T) error
 
 	// UpdateWithTx updates an entity within a transaction.
-	UpdateWithTx(ctx context.Context, tx *bun.Tx, model *T) error
+	UpdateWithTx(ctx context.Context, tx *bun.Tx, model ...*T) error
 
 	// DeleteWithTx removes an entity within a transaction.
-	DeleteWithTx(ctx context.Context, tx *bun.Tx, id any) error
+	DeleteWithTx(ctx context.Context, tx *bun.Tx, id ...any) error
 
 	// SelectBuilder returns a Bun select query builder for the entity.
 	SelectBuilder() *bun.SelectQuery
@@ -114,7 +114,7 @@ func (s *baseServiceImpl[T]) All(ctx context.Context) ([]*T, error) {
 	return s.baseRepo().GetAll(ctx)
 }
 
-func (s *baseServiceImpl[T]) List(ctx context.Context, filter *types.QueryFilter) ([]*T, error) {
+func (s *baseServiceImpl[T]) List(ctx context.Context, filter *types.Condition) ([]*T, error) {
 	return s.baseRepo().List(ctx, filter)
 }
 
@@ -122,12 +122,12 @@ func (s *baseServiceImpl[T]) Query(ctx context.Context, query string, args ...in
 	return s.baseRepo().Query(ctx, query, args...)
 }
 
-func (s *baseServiceImpl[T]) Update(ctx context.Context, model *T) error {
-	return s.baseRepo().Update(ctx, model)
+func (s *baseServiceImpl[T]) Update(ctx context.Context, model ...*T) error {
+	return s.baseRepo().Update(ctx, model...)
 }
 
-func (s *baseServiceImpl[T]) Delete(ctx context.Context, id any) error {
-	return s.baseRepo().Delete(ctx, id)
+func (s *baseServiceImpl[T]) Delete(ctx context.Context, id ...any) error {
+	return s.baseRepo().Delete(ctx, id...)
 }
 
 func (s *baseServiceImpl[T]) Page(ctx context.Context, page *types.PageRequest) (*types.Pagination[T], error) {
@@ -142,12 +142,12 @@ func (s *baseServiceImpl[T]) SaveOrUpdateWithTx(ctx context.Context, tx *bun.Tx,
 	return s.baseRepo().UpsertWithTx(ctx, tx, fields, duplicateKeys, model...)
 }
 
-func (s *baseServiceImpl[T]) UpdateWithTx(ctx context.Context, tx *bun.Tx, model *T) error {
-	return s.baseRepo().UpdateWithTx(ctx, tx, model)
+func (s *baseServiceImpl[T]) UpdateWithTx(ctx context.Context, tx *bun.Tx, model ...*T) error {
+	return s.baseRepo().UpdateWithTx(ctx, tx, model...)
 }
 
-func (s *baseServiceImpl[T]) DeleteWithTx(ctx context.Context, tx *bun.Tx, id any) error {
-	return s.baseRepo().DeleteWithTx(ctx, tx, id)
+func (s *baseServiceImpl[T]) DeleteWithTx(ctx context.Context, tx *bun.Tx, id ...any) error {
+	return s.baseRepo().DeleteWithTx(ctx, tx, id...)
 }
 
 func (s *baseServiceImpl[T]) SelectBuilder() *bun.SelectQuery {
