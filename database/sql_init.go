@@ -93,7 +93,7 @@ func (s *SQLInitManager) ExecuteInitialization() error {
 
 	results := make([]ExecutionResult, 0, len(files))
 	for _, file := range files {
-		result := s.executeFile(file)
+		result := s.ExecuteFile(file)
 		results = append(results, result)
 
 		if !result.Success {
@@ -194,7 +194,7 @@ func (s *SQLInitManager) parseFileOrder(filename string) int {
 	return 999
 }
 
-func (s *SQLInitManager) executeFile(file SQLFileInfo) ExecutionResult {
+func (s *SQLInitManager) ExecuteFile(file SQLFileInfo) ExecutionResult {
 	start := time.Now()
 	result := ExecutionResult{
 		File:    file.Path,

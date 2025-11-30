@@ -118,7 +118,7 @@ func RunMigrations() error {
 // InitData seeds initial data using the configured environment (backward compatibility).
 func InitData() error {
 	// Set default value
-	defaultEnv := "development"
+	defaultEnv := "prod"
 
 	// If configuration is loaded, use its value
 	if globalConfig.DataInitConfig.Environment != "" {

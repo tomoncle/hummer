@@ -230,7 +230,7 @@ func (dm *defaultDatabaseManager) Disconnect() error {
 			if err != nil {
 				dm.logger.Error("Failed to close database connection", "error", err)
 			} else {
-				dm.logger.Info("Database connection closed")
+				dm.logger.Info("Database connection closed!")
 			}
 		}
 

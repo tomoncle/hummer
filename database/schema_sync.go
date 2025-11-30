@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025 tomoncle.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package database
 
 import (
@@ -24,7 +39,6 @@ type columnSpec struct {
 	AutoIncrement bool
 	RenameFrom    string
 }
-
 type indexSpec struct {
 	Name    string
 	Columns []string
@@ -54,6 +68,13 @@ func (mm *MigrationManager) SynchronizeSchema(ctx context.Context, db bun.IDB) e
 			return fmt.Errorf("failed to query existing indexes %s: %w", tableName, err)
 		}
 
+		sigCols := buildDesiredColsSignature(desiredCols)
+		sigIdx := buildDesiredIndexSignature(desiredIdx)
+		sigText := tableName + "|cols:" + sigCols + "|idx:" + sigIdx
+		sum := sha256.Sum256([]byte(sigText))
+		hash := hex.EncodeToString(sum[:])
+		version := fmt.Sprintf("schema_sync:%s:%s", tableName, hash)
+
 		planCols := planColumns(db, tableName, desiredCols, existingCols)
 		planIdx := planIndexes(db, tableName, desiredIdx, existingIdx)
 		fullPlan := append(planCols, planIdx...)
@@ -62,9 +83,6 @@ func (mm *MigrationManager) SynchronizeSchema(ctx context.Context, db bun.IDB) e
 		}
 		sort.Strings(fullPlan)
 		planText := strings.Join(fullPlan, ";\n")
-		sum := sha256.Sum256([]byte(planText))
-		hash := hex.EncodeToString(sum[:])
-		version := fmt.Sprintf("schema_sync:%s:%s", tableName, hash)
 
 		mm.migrationCacheMu.RLock()
 		if mm.migrationCache != nil {
@@ -103,11 +121,11 @@ func (mm *MigrationManager) SynchronizeSchema(ctx context.Context, db bun.IDB) e
 		if err := mm.syncIndexes(ctx, db, tableName, desiredIdx, existingIdx); err != nil {
 			return err
 		}
+
 		if err := mm.recordSchemaSyncVersion(ctx, db, version, tableName, hash, planText); err != nil {
 			return fmt.Errorf("failed to record schema_sync plan %s: %w", tableName, err)
 		}
 	}
-
 	if mm.logger != nil && globalConfig != nil && globalConfig.DataMigrateConfig.SchemaMetaAuditLog {
 		total := mm.schemaCacheHits + mm.schemaCacheMisses
 		hitRate := 0.0
@@ -115,12 +133,47 @@ func (mm *MigrationManager) SynchronizeSchema(ctx context.Context, db bun.IDB) e
 			hitRate = float64(mm.schemaCacheHits) / float64(total)
 		}
 		mm.schemaCacheMu.Lock()
-		mm.logger.Debug("schema metadata cache hit rate", "hits", mm.schemaCacheHits, "misses", mm.schemaCacheMisses, "hit_rate", fmt.Sprintf("%.2f", hitRate), "refreshes", mm.schemaCacheRefreshes)
+		mm.logger.Info("Schema metadata cache hit rate", "hits", mm.schemaCacheHits, "misses", mm.schemaCacheMisses, "hit_rate", fmt.Sprintf("%.2f", hitRate), "refreshes", mm.schemaCacheRefreshes)
 		mm.schemaCacheHits = 0
 		mm.schemaCacheMisses = 0
 		mm.schemaCacheMu.Unlock()
 	}
 	return nil
+}
+
+func buildDesiredColsSignature(desired map[string]columnSpec) string {
+	if desired == nil {
+		return ""
+	}
+	names := make([]string, 0, len(desired))
+	for n := range desired {
+		names = append(names, strings.ToLower(n))
+	}
+	sort.Strings(names)
+	var parts []string
+	for _, n := range names {
+		c := desired[n]
+		typ := normalizeSQLType(globalConfig.ConnectionConfig.Type, c.Type)
+		def := normalizeDefault(globalConfig.ConnectionConfig.Type, c.Default, !c.NotNull)
+		parts = append(parts, n+":"+typ+":"+fmt.Sprintf("%t", c.NotNull)+":"+def+":"+fmt.Sprintf("%t", c.PrimaryKey)+":"+fmt.Sprintf("%t", c.AutoIncrement)+":"+strings.ToLower(strings.TrimSpace(c.UniqueTag)))
+	}
+	return strings.Join(parts, ",")
+}
+
+func buildDesiredIndexSignature(desired []indexSpec) string {
+	if len(desired) == 0 {
+		return ""
+	}
+	var items []string
+	for _, idx := range desired {
+		cols := make([]string, len(idx.Columns))
+		for i, c := range idx.Columns {
+			cols[i] = strings.ToLower(strings.TrimSpace(c))
+		}
+		items = append(items, fmt.Sprintf("%t|%s", idx.Unique, strings.Join(cols, ",")))
+	}
+	sort.Strings(items)
+	return strings.Join(items, ";")
 }
 
 func planColumns(db bun.IDB, table string, desired map[string]columnSpec, existing map[string]columnSpec) []string {
@@ -211,7 +264,6 @@ func planIndexes(db bun.IDB, table string, desired []indexSpec, existing []index
 			continue
 		}
 		if e, ok := existingSig[k]; ok {
-			// Do not rename index names; treat as matched to avoid subsequent CREATE/DROP
 			delete(existingMap, e.Name)
 			existingMap[d.Name] = e
 		}
@@ -421,7 +473,7 @@ func (mm *MigrationManager) syncIndexes(ctx context.Context, db bun.IDB, table s
 					if is && sqlErr == ExistIndexErr {
 						continue
 					}
-					return fmt.Errorf("failed to create index %s.%s: %w", table, name, err)
+					return fmt.Errorf("failed to add index %s.%s: %w", table, name, err)
 				}
 				changed = true
 			}
@@ -469,7 +521,7 @@ func resolveTableName(model interface{}) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("bun.BaseModel table tag not found")
+	return "", fmt.Errorf("missing table tag on bun.BaseModel")
 }
 
 func resolveDesiredSchema(model interface{}) (map[string]columnSpec, []indexSpec) {
@@ -540,7 +592,6 @@ func collectDesiredSchema(t reflect.Type, rootName string, cols map[string]colum
 				spec.AutoIncrement = true
 			case p == "unique" || strings.HasPrefix(p, "unique:"):
 				spec.UniqueTag = p
-				// Collect unique indexes (supports composite unique)
 				name := ""
 				if strings.HasPrefix(p, "unique:") {
 					name = strings.TrimPrefix(p, "unique:")
@@ -556,11 +607,11 @@ func collectDesiredSchema(t reflect.Type, rootName string, cols map[string]colum
 		if spec.Type == "" {
 			spec.Type = inferSQLType(f.Type)
 		}
-		hummerTag := strings.TrimSpace(f.Tag.Get("hummer"))
-		if hummerTag != "" {
-			idx := strings.Index(hummerTag, "rename:")
+		hummer := strings.TrimSpace(f.Tag.Get("hummer"))
+		if hummer != "" {
+			idx := strings.Index(hummer, "rename:")
 			if idx >= 0 {
-				val := strings.TrimSpace(hummerTag[idx+len("rename:"):])
+				val := strings.TrimSpace(hummer[idx+len("rename:"):])
 				val = strings.Trim(val, "'\"")
 				if val != "" {
 					spec.RenameFrom = val
@@ -618,7 +669,7 @@ func listExistingColumns(ctx context.Context, db bun.IDB, table string) (map[str
 		rows, err = db.QueryContext(ctx, `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = $1`, table)
 	case "mysql":
 		rows, err = db.QueryContext(ctx, `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, table)
-	default: // sqlite
+	default:
 		rows, err = db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info('%s')", table))
 	}
 	if err != nil {
@@ -641,7 +692,7 @@ func listExistingColumns(ctx context.Context, db bun.IDB, table string) (map[str
 			if err := rows.Scan(&name, &typStr, &nullable, &defaultNS, &autoExtra); err != nil {
 				return nil, err
 			}
-		default: // sqlite
+		default:
 			var cid, notnull, pk int
 			if err := rows.Scan(&cid, &name, &typStr, &notnull, &defaultNS, &pk); err != nil {
 				return nil, err
@@ -718,7 +769,7 @@ func listExistingColumnsAll(ctx context.Context, db bun.IDB) (map[string]map[str
 		}
 		return result, nil
 	default:
-		return nil, nil // sqlite does not support batch; fallback to per-table query
+		return nil, nil
 	}
 }
 
@@ -845,7 +896,7 @@ func listExistingIndexes(ctx context.Context, db bun.IDB, table string) ([]index
 		for _, s := range temp {
 			idx = append(idx, s)
 		}
-	default: // sqlite
+	default:
 		rows, err = db.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list('%s')", table))
 		if err != nil {
 			return nil, err
@@ -1033,7 +1084,7 @@ func quoteIdent(db bun.IDB, s string) string {
 		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 	case "mysql":
 		return "`" + strings.ReplaceAll(s, "`", "``") + "`"
-	default: // sqlite
+	default:
 		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 	}
 }

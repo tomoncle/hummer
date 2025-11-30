@@ -145,6 +145,13 @@ func (f *BaseDatabaseFactory) InitializeDatabase(ctx context.Context, runMigrati
 			return fmt.Errorf("failed to run database migrations: %w", err)
 		}
 	}
+	if globalConfig != nil &&
+		globalConfig.DataInitConfig.AutoInitOnStartup &&
+		!(globalConfig.DataInitConfig.AutoInitOnMigration && runMigrations) {
+		if err := f.manager.InitData(ctx); err != nil {
+			return fmt.Errorf("init data error: %w", err)
+		}
+	}
 	f.logger.Info("Database initialization completed!")
 	return nil
 }
