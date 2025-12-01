@@ -126,7 +126,8 @@ func (r *baseRepositoryImpl[T]) Upsert(ctx context.Context, fields []string, dup
 }
 
 func (r *baseRepositoryImpl[T]) Update(ctx context.Context, entity ...*T) error {
-	_, err := r.db.NewUpdate().Model(entity).WherePK().Exec(ctx)
+	entities := r.ValsToSlice(entity...)
+	_, err := r.db.NewUpdate().Model(&entities).WherePK().Exec(ctx)
 	return err
 }
 
@@ -146,7 +147,8 @@ func (r *baseRepositoryImpl[T]) UpsertWithTx(ctx context.Context, tx *bun.Tx, fi
 }
 
 func (r *baseRepositoryImpl[T]) UpdateWithTx(ctx context.Context, tx *bun.Tx, entity ...*T) error {
-	_, err := tx.NewUpdate().Model(entity).WherePK().Exec(ctx)
+	entities := r.ValsToSlice(entity...)
+	_, err := tx.NewUpdate().Model(&entities).WherePK().Exec(ctx)
 	return err
 }
 
