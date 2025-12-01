@@ -126,9 +126,12 @@ func (r *baseRepositoryImpl[T]) Upsert(ctx context.Context, fields []string, dup
 }
 
 func (r *baseRepositoryImpl[T]) Update(ctx context.Context, entity ...*T) error {
-	entities := r.ValsToSlice(entity...)
-	_, err := r.db.NewUpdate().Model(&entities).WherePK().Exec(ctx)
-	return err
+	for _, obj := range entity {
+		if _, err := r.db.NewUpdate().Model(obj).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *baseRepositoryImpl[T]) Delete(ctx context.Context, id ...any) error {
@@ -147,9 +150,12 @@ func (r *baseRepositoryImpl[T]) UpsertWithTx(ctx context.Context, tx *bun.Tx, fi
 }
 
 func (r *baseRepositoryImpl[T]) UpdateWithTx(ctx context.Context, tx *bun.Tx, entity ...*T) error {
-	entities := r.ValsToSlice(entity...)
-	_, err := tx.NewUpdate().Model(&entities).WherePK().Exec(ctx)
-	return err
+	for _, obj := range entity {
+		if _, err := tx.NewUpdate().Model(obj).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *baseRepositoryImpl[T]) DeleteWithTx(ctx context.Context, tx *bun.Tx, id ...any) error {
