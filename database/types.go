@@ -89,9 +89,6 @@ type ConnectionConfig struct {
 	ConnectTimeout      time.Duration `json:"connect_timeout"`
 	ReadTimeout         time.Duration `json:"read_timeout"`
 	WriteTimeout        time.Duration `json:"write_timeout"`
-	EnableReconnect     bool          `json:"enable_reconnect"`
-	ReconnectInterval   time.Duration `json:"reconnect_interval"`
-	MaxReconnectTries   int           `json:"max_reconnect_tries"`
 	HealthCheckInterval time.Duration `json:"health_check_interval"`
 	EnableQueryLog      bool          `json:"enable_query_log"`
 	SlowQueryTime       time.Duration `json:"slow_query_time"`
@@ -142,9 +139,6 @@ func DefaultConnectionConfig() *ConnectionConfig {
 		ConnectTimeout:      time.Second * 10,
 		ReadTimeout:         time.Second * 30,
 		WriteTimeout:        time.Second * 30,
-		EnableReconnect:     true,
-		ReconnectInterval:   time.Second * 5,
-		MaxReconnectTries:   3,
 		HealthCheckInterval: time.Minute * 5,
 		EnableQueryLog:      false,
 		SlowQueryTime:       time.Second * 2,

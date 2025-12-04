@@ -96,9 +96,9 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 
 	args := []interface{}{
 		now.Format("2006-01-02 15:04:05.000"),
-		colorWrap(fmt.Sprintf("%15s", "[BUN] ✅"), ansiCyan),
-		fmt.Sprintf("%17s", dur.Round(time.Microsecond)),
-		"  ", formatOperationColor(event),
+		fmt.Sprintf("%23s", dur.Round(time.Microsecond)),
+		colorWrap(fmt.Sprintf("%9s", "[BUN] ✅"), ansiCyan),
+		" -- ", formatOperationColor(event),
 	}
 
 	if event.Err != nil {
@@ -175,9 +175,9 @@ func (h *SlowQueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	if duration > h.slowTime {
 		args := []interface{}{
 			time.Now().Format("2006-01-02 15:04:05.000"),
-			colorWrap(fmt.Sprintf("%15s", "[BUN_SLOW] 🔴"), ansiYellow),
-			fmt.Sprintf("%17s", duration.Round(time.Microsecond)),
-			"  ", formatOperationBackgroundColor(event),
+			fmt.Sprintf("%23s", duration.Round(time.Microsecond)),
+			backgroundColorWrap(fmt.Sprintf("%9s", "[BUN] 🔴"), ansiBGYellow),
+			" -- ", formatOperationBackgroundColor(event),
 		}
 		_, _ = fmt.Fprintln(h.writer, args...)
 	}

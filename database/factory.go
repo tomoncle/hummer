@@ -112,17 +112,6 @@ func (f *BaseDatabaseFactory) overrideFromEnv(cfg *ConnectionConfig) {
 			cfg.ConnMaxLifetime = time.Duration(val) * time.Second
 		}
 	}
-
-	// Reconnect config
-	if enableReconnect := os.Getenv("DB_ENABLE_RECONNECT"); enableReconnect != "" {
-		cfg.EnableReconnect = enableReconnect == "true"
-	}
-	if reconnectInterval := os.Getenv("DB_RECONNECT_INTERVAL"); reconnectInterval != "" {
-		if val, err := strconv.Atoi(reconnectInterval); err == nil {
-			cfg.ReconnectInterval = time.Duration(val) * time.Second
-		}
-	}
-
 	// Logging config
 	if enableQueryLog := os.Getenv("DB_ENABLE_QUERY_LOG"); enableQueryLog != "" {
 		cfg.EnableQueryLog = enableQueryLog == "true"

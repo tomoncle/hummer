@@ -24,15 +24,18 @@ import (
 var (
 	globalFactory *BaseDatabaseFactory
 	globalConfig  *Config
-	DB            *bun.DB
+	db            *bun.DB
 )
 
 // GetDB returns the global Bun database instance.
 func GetDB() *bun.DB {
-	if globalFactory != nil {
-		return globalFactory.GetDB()
+	if db != nil {
+		return db
 	}
-	return DB
+	if globalFactory != nil {
+		db = globalFactory.GetDB()
+	}
+	return db
 }
 
 // GetDatabaseManager returns the global database manager.
@@ -70,9 +73,9 @@ func InitDatabaseWithOptions(cfg *Config, runMigrations bool) (*bun.DB, error) {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	DB = manager.GetDB()
-	DB.RegisterModel(RegisteredModelInstances()...)
-	return DB, nil
+	db = manager.GetDB()
+	db.RegisterModel(RegisteredModelInstances()...)
+	return db, nil
 }
 
 // CloseDB closes the global database connection (backward compatibility).

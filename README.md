@@ -172,8 +172,6 @@ stats := database.GetDatabaseStats() // 连接池统计
 - `DB_MAX_IDLE_CONNS`
 - `DB_MAX_OPEN_CONNS`
 - `DB_CONN_MAX_LIFETIME`
-- `DB_ENABLE_RECONNECT`
-- `DB_RECONNECT_INTERVAL`
 - `DB_ENABLE_QUERY_LOG`
 
 ## 兼容数据库

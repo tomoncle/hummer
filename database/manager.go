@@ -46,7 +46,6 @@ type defaultDatabaseManager struct {
 	healthStatus    *HealthStatus
 	reconnectTries  int
 	stopHealthCheck chan struct{}
-	healthCheckOnce sync.Once
 }
 
 func NewDatabaseManager(config *ConnectionConfig) AbstractDatabaseManager {
@@ -90,6 +89,16 @@ func (dm *defaultDatabaseManager) Connect(ctx context.Context) error {
 	dm.connected = true
 	dm.lastError = nil
 	dm.reconnectTries = 0
+
+	dm.healthStatus.Healthy = true
+	dm.healthStatus.Connected = true
+	dm.healthStatus.LastCheckTime = time.Now()
+	if dm.sqlDB != nil {
+		stats := dm.sqlDB.Stats()
+		dm.healthStatus.ActiveConns = stats.InUse
+		dm.healthStatus.IdleConns = stats.Idle
+		dm.healthStatus.MaxOpenConns = stats.MaxOpenConnections
+	}
 
 	if dm.config.HealthCheckInterval > 0 {
 		dm.startHealthCheck()
@@ -283,102 +292,63 @@ func (dm *defaultDatabaseManager) HealthCheck(ctx context.Context) *HealthStatus
 	defer dm.mu.Unlock()
 
 	start := time.Now()
-	status := &HealthStatus{
-		LastCheckTime: start,
-		Connected:     dm.connected,
-	}
-
+	dm.healthStatus.LastCheckTime = start
+	dm.lastHealthCheck = start
 	if dm.db == nil {
-		status.Healthy = false
-		status.LastError = "Database not initialized"
-		return status
+		dm.healthStatus.Connected = false
+		dm.healthStatus.Healthy = false
+		dm.healthStatus.LastError = "Database not initialized"
+		return dm.healthStatus
 	}
 
 	ctxTimeout, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
 	err := dm.db.PingContext(ctxTimeout)
-	status.ResponseTime = time.Since(start)
-
+	dm.healthStatus.ResponseTime = time.Since(start)
 	if err != nil {
-		status.Healthy = false
-		status.Connected = false
-		status.LastError = err.Error()
+		dm.logger.Error("Database Health Check:", "DB Error❌", err)
+		dm.healthStatus.Healthy = false
+		dm.healthStatus.Connected = false
+		dm.healthStatus.LastError = err.Error()
 		dm.lastError = err
+		dm.connected = false
 	} else {
-		status.Healthy = true
-		status.Connected = true
-		dm.lastError = nil
+		if dm.lastError != nil {
+			dm.logger.Info("Database Health Check:", "Recovery✅", "Healthy!")
+		}
+		dm.healthStatus.Healthy = true
+		dm.healthStatus.Connected = true
+		dm.healthStatus.LastError = ""
 		dm.reconnectTries = 0
+		dm.lastError = nil
+		dm.connected = true
 	}
-
 	if dm.sqlDB != nil {
 		stats := dm.sqlDB.Stats()
-		status.ActiveConns = stats.InUse
-		status.IdleConns = stats.Idle
-		status.MaxOpenConns = stats.MaxOpenConnections
+		dm.healthStatus.ActiveConns = stats.InUse
+		dm.healthStatus.IdleConns = stats.Idle
+		dm.healthStatus.MaxOpenConns = stats.MaxOpenConnections
 	}
-
-	dm.healthStatus = status
-	dm.lastHealthCheck = start
-
-	return status
+	return dm.healthStatus
 }
 
 func (dm *defaultDatabaseManager) startHealthCheck() {
-	dm.healthCheckOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(dm.config.HealthCheckInterval)
-			defer ticker.Stop()
+	go func() {
+		ticker := time.NewTicker(dm.config.HealthCheckInterval)
+		defer ticker.Stop()
 
-			for {
-				select {
-				case <-ticker.C:
-					ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-					status := dm.HealthCheck(ctx)
-					cancel()
-					if !status.Healthy && dm.config.EnableReconnect {
-						dm.handleReconnect()
-					}
-
-				case <-dm.stopHealthCheck:
-					return
-				}
+		for {
+			select {
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+				dm.HealthCheck(ctx)
+				cancel()
+			case <-dm.stopHealthCheck:
+				return
 			}
-		}()
-	})
-}
-
-func (dm *defaultDatabaseManager) handleReconnect() {
-	if dm.reconnectTries >= dm.config.MaxReconnectTries {
-		if dm.logger != nil {
-			dm.logger.Error("Max reconnect attempts reached, stopping", "tries", dm.reconnectTries)
 		}
-		return
-	}
-
-	dm.reconnectTries++
-	if dm.logger != nil {
-		dm.logger.Info("Starting database reconnect", "try", dm.reconnectTries)
-	}
-
-	time.Sleep(dm.config.ReconnectInterval)
-
-	ctx, cancel := context.WithTimeout(context.Background(), dm.config.ConnectTimeout)
-	defer cancel()
-
-	if err := dm.Reconnect(ctx); err != nil {
-		if dm.logger != nil {
-			dm.logger.Error("Reconnect failed", "error", err, "try", dm.reconnectTries)
-		}
-	} else {
-		dm.reconnectTries = 0
-		DB = dm.GetDB()
-		DB.RegisterModel(RegisteredModelInstances()...)
-		if dm.logger != nil {
-			dm.logger.Info("Reconnect succeeded")
-		}
-	}
+	}()
 }
 
 func (dm *defaultDatabaseManager) GetStats() *DBStats {

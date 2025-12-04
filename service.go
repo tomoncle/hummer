@@ -20,8 +20,6 @@ import (
 	"github.com/tomoncle/hummer/database"
 	"github.com/tomoncle/hummer/repository"
 	"github.com/tomoncle/hummer/types"
-	"sync"
-
 	"github.com/uptrace/bun"
 )
 
@@ -80,7 +78,6 @@ type Service[T any] interface {
 
 type baseServiceImpl[T any] struct {
 	repo repository.Repository[T]
-	once sync.Once
 }
 
 // NewService returns a default Service implementation using the generic
@@ -94,7 +91,9 @@ func newBaseServiceImpl[T any]() *baseServiceImpl[T] {
 }
 
 func (s *baseServiceImpl[T]) baseRepo() repository.Repository[T] {
-	s.once.Do(func() { s.repo = repository.NewRepository[T](database.GetDB()) })
+	if s.repo == nil {
+		s.repo = repository.NewRepository[T](database.GetDB())
+	}
 	return s.repo
 }
 
