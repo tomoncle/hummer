@@ -74,7 +74,7 @@ type SystemConfig struct {
 }
 
 func init() {
-	database.RegisteredModel(database.NewModelAdapter((*SystemConfig)(nil), 10))
+	database.RegisteredModel((*SystemConfig)(nil), 10)
 }
 
 func TestQuery(t *testing.T) {

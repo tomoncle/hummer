@@ -94,9 +94,14 @@ func GetRegisteredModels() []SQLModel {
 	return defaultRegistry.Models()
 }
 
-// RegisteredModel adds a model to the default registry.
-func RegisteredModel(model SQLModel) {
+// RegisteredSQlModel adds a model to the default registry.
+func RegisteredSQlModel(model SQLModel) {
 	defaultRegistry.Register(model)
+}
+
+// RegisteredModel adds a instance to the default registry.
+func RegisteredModel(instance interface{}, priority int) {
+	RegisteredSQlModel(NewModelAdapter(instance, priority))
 }
 
 func RegisteredModelInstances() []interface{} {
